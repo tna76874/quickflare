@@ -67,6 +67,7 @@ class CloudflaredManager:
         self.metrics_port = kwargs.pop('metrics_port', randint(8100, 9000))
         self.tunnel_id = kwargs.pop('tunnel_id', None)
         self.config_path = kwargs.pop('config_path', None)
+        self.path = kwargs.pop('path', '/tmp')
 
     def _get_command(self, system, machine):
         try:
@@ -93,24 +94,38 @@ class CloudflaredManager:
     def _download_file(self, url):
         local_filename = url.split('/')[-1]
         r = requests.get(url, stream=True)
-        download_path = str(Path(tempfile.gettempdir(), local_filename))
+            
+        download_path = str(Path(self._get_base_cmd_path(), local_filename))
         with open(download_path, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
         return download_path
+    
+    def _get_base_cmd_path(self):
+        if self.path=='/tmp':
+            return tempfile.gettempdir()
+        else:
+            return self.path
+    
+    def _ensure_cloudflared(self):
+        system, machine = platform.system(), platform.machine()
+        command = self._get_command(system, machine)
+        cloudflared_path = str(Path(self._get_base_cmd_path()))
+        if system == "Darwin":
+            self._download_cloudflared(cloudflared_path, "cloudflared-darwin-amd64.tgz")
+            self._extract_tarball(cloudflared_path, "cloudflared-darwin-amd64.tgz")
+        else:
+            self._download_cloudflared(cloudflared_path, command)        
 
     def _run_cloudflared(self):
         self.stop()
         
         port, metrics_port, tunnel_id, config_path = self.port, self.metrics_port, self.tunnel_id, self.config_path
+        self._ensure_cloudflared()
+
         system, machine = platform.system(), platform.machine()
         command = self._get_command(system, machine)
-        cloudflared_path = str(Path(tempfile.gettempdir()))
-        if system == "Darwin":
-            self._download_cloudflared(cloudflared_path, "cloudflared-darwin-amd64.tgz")
-            self._extract_tarball(cloudflared_path, "cloudflared-darwin-amd64.tgz")
-        else:
-            self._download_cloudflared(cloudflared_path, command)
-    
+        cloudflared_path = str(Path(self._get_base_cmd_path()))
+
         executable = str(Path(cloudflared_path, command))
         os.chmod(executable, 0o777)
     
@@ -160,7 +175,8 @@ class CloudflaredManager:
         if info: self._print_info()
         
     def restart(self):
-        pass
+        self.stop()
+        self.start()
     
     def stop(self):
         try:
@@ -182,19 +198,29 @@ def main():
     parser.add_argument('--metrics-port', type=int, default=randint(8100, 9000), help='Specify the metrics port (default: random between 8100 and 9000)')
     parser.add_argument('--tunnel-id', type=str, default=None, help='Specify the tunnel ID (default: None)')
     parser.add_argument('--config-path', type=str, default=None, help='Specify the config path (default: None)')
+    parser.add_argument('--download', action='store_true', help='Download cloudflared')
+    parser.add_argument('--path', type=str, default='/tmp', help='Default download path of executable')
+
+
 
     args = parser.parse_args()
 
-    print("Starting up tunnel . . .")
-    cManager = CloudflaredManager(**vars(args))
-    cManager.start(info=True)
-
-    print("Press CTRL+C to terminate tunnel")
-    try:
-        while True:
+    if not args.download:
+        print("Starting up tunnel . . .")
+        cManager = CloudflaredManager(**vars(args))
+        cManager.start(info=True)
+    
+        print("Press CTRL+C to terminate tunnel")
+        try:
+            while True:
+                pass
+        except KeyboardInterrupt:
             pass
-    except KeyboardInterrupt:
-        pass
+    else:
+        cManager = CloudflaredManager(**vars(args))
+        cManager._ensure_cloudflared()
+
+        
 
 if __name__ == "__main__":
     self = CloudflaredManager(port=5001)
