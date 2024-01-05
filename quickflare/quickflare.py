@@ -18,8 +18,11 @@ import platform
 import time
 import re
 from random import randint
-from threading import Timer
 from pathlib import Path
+import time
+from datetime import datetime, timedelta
+import threading
+
 
 class CloudflaredManager:
     def __init__(self, **kwargs):
@@ -68,6 +71,56 @@ class CloudflaredManager:
         self.tunnel_id = kwargs.pop('tunnel_id', None)
         self.config_path = kwargs.pop('config_path', None)
         self.path = kwargs.pop('path', '/tmp')
+        
+        self.keep_alive = kwargs.pop('keep_alive', False)
+        
+        if self.keep_alive:
+            self._thread = threading.Thread(target=self._thread_keepalive)
+            self._thread.daemon = True
+            self._thread.start()
+    
+    def _check_source_state(self):
+        try:
+            response = requests.get(f'http://{self.host}:{self.port}')
+            if response.status_code == 200:
+                return True
+            else:
+                return False
+        except:
+            return False
+        
+    def _check_destination_state(self):
+        try:
+            response = requests.get(self.tunnel_url)
+            if response.status_code == 200:
+                return True
+            else:
+                return False
+        except:
+            return False
+        
+    def _check_state(self):
+        self.state_source = self._check_source_state()
+        self.state_destination = self._check_destination_state()
+        
+    def _restart_if_necessary(self):
+        self._check_state()
+        
+        allow_restart = datetime.now() - self._last_started >= timedelta(minutes=5)
+        
+        if self.state_source and (not self.state_destination) and allow_restart:
+            self.restart()
+            
+    def _thread_keepalive(self):
+        while self.keep_alive:
+            for _ in range(300):
+                time.sleep(1)
+                if not self.keep_alive:
+                    break
+            try:
+                self._restart_if_necessary()
+            except:
+                pass
 
     def _get_command(self, system, machine):
         try:
@@ -172,6 +225,7 @@ class CloudflaredManager:
         
     def start(self, info = False):
         cloudflared_address = self._run_cloudflared()
+        self._last_started = datetime.now()
         if info: self._print_info()
         
     def restart(self):
@@ -188,6 +242,10 @@ class CloudflaredManager:
         
     def __del__(self):
         self.stop()
+        if self.keep_alive:
+            self.keep_alive = False
+            self._thread.join()
+
         
 def main():
     import argparse
@@ -200,8 +258,6 @@ def main():
     parser.add_argument('--config-path', type=str, default=None, help='Specify the config path (default: None)')
     parser.add_argument('--download', action='store_true', help='Download cloudflared')
     parser.add_argument('--path', type=str, default='/tmp', help='Default download path of executable')
-
-
 
     args = parser.parse_args()
 
@@ -220,7 +276,6 @@ def main():
         cManager = CloudflaredManager(**vars(args))
         cManager._ensure_cloudflared()
 
-        
 
 if __name__ == "__main__":
     self = CloudflaredManager(port=5001)
