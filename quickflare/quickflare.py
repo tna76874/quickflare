@@ -169,12 +169,25 @@ class CloudflaredManager:
             self._download_cloudflared(cloudflared_path, self.command)
             
     def _get_cloudflared_executable_path(self):
+        existing_path = self._check_existing_cloudflared()
+        if existing_path:
+            return existing_path        
+
         self._ensure_cloudflared()
         cloudflared_path = str(Path(self._get_base_cmd_path()))
         executable = str(Path(cloudflared_path, self.command))
         os.chmod(executable, 0o777)
         
         return executable
+    
+    def _check_existing_cloudflared(self):
+        try:
+            result = subprocess.check_output(["which", "cloudflared"]).decode("utf-8").strip()
+            if os.path.exists(result):
+                return result
+        except subprocess.CalledProcessError:
+            pass
+        return None
     
     def _get_system_info(self):
         self.system, self.machine = platform.system(), platform.machine()
