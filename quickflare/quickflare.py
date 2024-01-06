@@ -73,6 +73,7 @@ class CloudflaredManager:
         self.path = kwargs.pop('path', '/tmp')
         
         self.keep_alive = kwargs.pop('keep_alive', False)
+        self._get_system_info()
         
         if self.keep_alive:
             self._thread = threading.Thread(target=self._thread_keepalive)
@@ -122,9 +123,9 @@ class CloudflaredManager:
             except:
                 pass
 
-    def _get_command(self, system, machine):
+    def _get_command(self):
         try:
-            return self.CLOUDFLARED_CONFIG[(system, machine)]['command']
+            return self.CLOUDFLARED_CONFIG[(self.system, self.machine)]['command']
         except KeyError:
             raise Exception(f"{machine} is not supported on {system}")
 
@@ -160,27 +161,31 @@ class CloudflaredManager:
             return self.path
     
     def _ensure_cloudflared(self):
-        system, machine = platform.system(), platform.machine()
-        command = self._get_command(system, machine)
         cloudflared_path = str(Path(self._get_base_cmd_path()))
-        if system == "Darwin":
+        if self.system == "Darwin":
             self._download_cloudflared(cloudflared_path, "cloudflared-darwin-amd64.tgz")
             self._extract_tarball(cloudflared_path, "cloudflared-darwin-amd64.tgz")
         else:
-            self._download_cloudflared(cloudflared_path, command)        
+            self._download_cloudflared(cloudflared_path, self.command)
+            
+    def _get_cloudflared_executable_path(self):
+        self._ensure_cloudflared()
+        cloudflared_path = str(Path(self._get_base_cmd_path()))
+        executable = str(Path(cloudflared_path, self.command))
+        os.chmod(executable, 0o777)
+        
+        return executable
+    
+    def _get_system_info(self):
+        self.system, self.machine = platform.system(), platform.machine()
+        self.command = self._get_command()
 
     def _run_cloudflared(self):
         self.stop()
         
         port, metrics_port, tunnel_id, config_path = self.port, self.metrics_port, self.tunnel_id, self.config_path
-        self._ensure_cloudflared()
-
-        system, machine = platform.system(), platform.machine()
-        command = self._get_command(system, machine)
-        cloudflared_path = str(Path(self._get_base_cmd_path()))
-
-        executable = str(Path(cloudflared_path, command))
-        os.chmod(executable, 0o777)
+        
+        executable = self._get_cloudflared_executable_path()
     
         cloudflared_command = [executable, 'tunnel', '--metrics', f'127.0.0.1:{metrics_port}']
         if config_path:
@@ -190,7 +195,7 @@ class CloudflaredManager:
         else:
             cloudflared_command += ['--url', f'http://{self.host}:{port}']
     
-        if system == "Darwin" and machine == "arm64":
+        if self.system == "Darwin" and self.machine == "arm64":
             self.cloudflared = subprocess.Popen(['arch', '-x86_64'] + cloudflared_command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         else:
             self.cloudflared = subprocess.Popen(cloudflared_command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -278,5 +283,5 @@ def main():
 
 
 if __name__ == "__main__":
-    self = CloudflaredManager(port=5001)
+    self = CloudflaredManager(host='192.168.1.168', port='8096', keep_alive=True)
     self.start(info=True)
