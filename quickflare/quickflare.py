@@ -137,10 +137,14 @@ class CloudflaredManager:
 
     def _download_cloudflared(self, cloudflared_path, command):
         system, machine = platform.system(), platform.machine()
-        if Path(cloudflared_path, command).exists():
-            executable = (cloudflared_path+'/'+'cloudflared') if (system == "Darwin" and machine in ["x86_64", "arm64"]) else (cloudflared_path+'/'+command)
-            update_cloudflared = subprocess.Popen([executable, 'update'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-            return
+        try:
+            if Path(cloudflared_path, command).exists():
+                executable = (cloudflared_path+'/'+'cloudflared') if (system == "Darwin" and machine in ["x86_64", "arm64"]) else (cloudflared_path+'/'+command)
+                os.chmod(executable, 0o777)
+                update_cloudflared = subprocess.Popen([executable, 'update'], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                return
+        except:
+            pass
         print(f" * Downloading cloudflared for {system} {machine}...")
         url = self._get_url(system, machine)
         self._download_file(url)
